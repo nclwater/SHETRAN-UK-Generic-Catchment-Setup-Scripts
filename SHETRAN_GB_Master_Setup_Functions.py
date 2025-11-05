@@ -21,8 +21,6 @@
 
 # --- Load in Packages ----------------------------------------
 import os
-# import time
-# import itertools
 import xarray as xr
 import pandas as pd
 import geopandas as gpd
@@ -38,6 +36,8 @@ import warnings
 import shutil
 import subprocess
 from subprocess import Popen, PIPE, STDOUT
+# import time
+# import itertools
 
 # import hydroeval as he  # Slightly tricky to install needed for calculating objective functions
 # https://pypi.org/project/hydroeval/ - open conda prompt: pip install hydroeval
@@ -141,38 +141,42 @@ def get_veg_string(vegetation_array_for_library, static_input_dataset):
     """
 
     veg_vals = [int(v) for v in np.unique(vegetation_array_for_library[vegetation_array_for_library != -9999])]
-    # strickler_dict = {1: 0.6, 2: 3, 3: 0.5, 4: 1, 5: 0.25, 6: 2, 7: 5}
-    # strickler_dict
 
     # Extract the vegetation properties from the metadata
     veg_props = static_input_dataset.land_cover.attrs["land_cover_key"].loc[
         static_input_dataset.land_cover.attrs["land_cover_key"]["Veg Type #"].isin(veg_vals)].copy()
-    # veg_props["strickler"] = [strickler_dict[item] for item in veg_props["Veg Type #"]]
 
     # Write the subset of properties out to a string
     veg_string = veg_props.to_csv(header=False, index=False)
-    # veg_string = "<VegetationDetail>" + veg_string[:-1].replace("\n", "</VegetationDetail>\n<VegetationDetail>") +
-    # "</VegetationDetail>\n"
     tmp = []
     for veg_line in veg_string[:-1].split('\n'):
         tmp.append('<VegetationDetail>' + veg_line.rstrip() + '</VegetationDetail>')
     veg_string = '\n'.join(tmp)
+
     return veg_string
 
 
 def get_soil_strings(orig_soil_types, new_soil_types, static_input_dataset):
     """
     Get the unique soil columns out for the library file.
+    This takes original soil types (which match the ones in the input ascii) and retrieve these from the
+    lookup table CSV file.
+    :param list orig_soil_types: list of soils matching input raster/csv.
+    :param list new_soil_types: list of consecutive numbers (from 1) to represent the soils present.
+    :param dict static_input_dataset: Dictionary of static inputs containing the x/y coordinates, the data array,
+                and the lookup values. This is built using read_static_asc_csv() and the dataset file paths.
     """
 
+    # Ensure that the soil types are listed as integers:
     orig_soil_types = [int(v) for v in orig_soil_types]
     new_soil_types = [int(v) for v in new_soil_types]
 
-    # Find the attributes of those columns
+    # Find the attributes of the relevant soil columns:
     soil_props = static_input_dataset.subsurface.attrs["soil_key"].loc[
         static_input_dataset.subsurface.attrs["soil_key"]["Soil Category"].isin(
-            orig_soil_types)].copy()  # Change soil_type_APM to soil_type to use old soils!
+            orig_soil_types)].copy()
 
+    # Change the old soil column numbers to the new (consecutive) numbers:
     for orig_type, new_type in zip(orig_soil_types, new_soil_types):
         soil_props.loc[soil_props['Soil Category'] == orig_type, 'tmp0'] = new_type
     soil_props['Soil Category'] = soil_props['tmp0'].values
@@ -181,50 +185,55 @@ def get_soil_strings(orig_soil_types, new_soil_types, static_input_dataset):
     soil_props["New_Soil_Type"] = soil_props["Soil Type"].copy()
     soil_props["New_Soil_Type"] = [s.replace(' ', '_') for s in soil_props["New_Soil_Type"]]
 
-    # Rename the soil types with 'top' and 'sub' for different layers for the new format of SHETRAN:
-    # aquifer_types = ["NoGroundwater", "LowProductivityAquifer", "ModeratelyProductiveAquifer",
-    #                  "HighlyProductiveAquifer"]
-    #
-    # soil_props['tmp1'] = np.where(
-    #     (~soil_props['Soil Type'].isin(aquifer_types)),
-    #     'Top_' + soil_props['Soil Type'],
-    #     soil_props['Soil Type']
-    # )
-    # soil_props['tmp2'] = np.where(
-    #     (~soil_props['Soil Type'].isin(aquifer_types)),
-    #     'Sub_' + soil_props['Soil Type'],
-    #     soil_props['Soil Type']
-    # )
-    # soil_props['New_Soil_Type'] = np.where(
-    #     soil_props['Soil Layer'] == 1, soil_props['tmp1'], soil_props['tmp2']
-    # )
-
     # Assign a new soil code to the unique soil types
     soil_codes = soil_props.New_Soil_Type.unique()
     soil_codes_dict = dict(zip(soil_codes, [i + 1 for i in range(len(soil_codes))]))
     soil_props["Soil_Type_Code"] = [soil_codes_dict[item] for item in soil_props.New_Soil_Type]
 
-    # Select the relevant information for the library file
+    # Select the relevant soil type information for the library file:
     soil_types = soil_props.loc[:, ["Soil_Type_Code", "New_Soil_Type", "Saturated Water Content",
                                     "Residual Water Content", "Saturated Conductivity (m/day)",
                                     "vanGenuchten- alpha (cm-1)", "vanGenuchten-n"]]
+
+    # If there is a Notes column, add this to the dataframe:
+    if 'Notes' in soil_props.columns:
+        Notes = True
+        soil_types['Notes'] = soil_props.loc[:, 'Notes']
+
+    # Drop duplications:
     soil_types.drop_duplicates(inplace=True)
 
+    # Separate the Notes column from the soil_types dataframe as these will be treated differently:
+    if Notes:
+        Soil_type_notes = soil_types['Notes'].values
+        soil_types = soil_types.drop('Notes', axis=1)
+
+        # Remove characters that can/will break the SHETRAN prepare.exe:
+        Soil_type_notes = [note.replace('<=', ' less than / equal to ') for note in Soil_type_notes]
+        Soil_type_notes = [note.replace('>=', ' greater than / equal to') for note in Soil_type_notes]
+        Soil_type_notes = [note.replace('<', ' less than ') for note in Soil_type_notes]
+        Soil_type_notes = [note.replace('>', ' greater than ') for note in Soil_type_notes]
+        Soil_type_notes = [note.replace('  ', ' ') for note in Soil_type_notes]
+
+    # Select the relevant soil property information for the library file:
     soil_cols = soil_props.loc[:, ["Soil Category", "Soil Layer", "Soil_Type_Code", "Depth at base of layer (m)"]]
 
-    # Write the subset of properties out to a string
+    # Convert the subsets of soil properties into two single strings (, and \n separators):
     soil_types_string = soil_types.to_csv(header=False, index=False)
     soil_cols_string = soil_cols.to_csv(header=False, index=False)
 
-    # soil_types_string = "<SoilProperty>" + soil_types_string[:-1].replace("\n", "</SoilProperty>\n<SoilProperty>")
-    # + "</SoilProperty>\n" soil_cols_string = "<SoilDetail>" + soil_cols_string[:-1].replace("\n",
-    # "</SoilDetail>\n<SoilDetail>") + "</SoilDetail>\n"
-
+    # Format the soil properties in the form required by the Library file:
     tmp = []
-    for line in soil_types_string[:-1].split('\n'):
-        tmp.append('<SoilProperty>' + line.rstrip() + '</SoilProperty>')
+    line_counter = 0
+    for line in soil_types_string[:-1].split('\n'):  # Split on each newline
+        if Notes:  # Standard XML syntax (<!-- Comment -->) will break the prepare.exe script (11/2025)
+            tmp.append(f'<SoilProperty>{line.rstrip()}</SoilProperty> #-- {str(Soil_type_notes[line_counter])} --#')
+            line_counter += 1
+        else:
+            tmp.append('<SoilProperty>' + line.rstrip() + '</SoilProperty>')
     soil_types_string = '\n'.join(tmp)
 
+    # Format the soil details in the form required by the Library file:
     tmp = []
     for line in soil_cols_string[:-1].split('\n'):
         tmp.append('<SoilDetail>' + line.rstrip() + '</SoilDetail>')
@@ -244,7 +253,9 @@ def calculate_library_channel_parameters(grid_resolution):
 def create_library_file(
         sim_output_folder, catch, veg_string, soil_types_string, soil_cols_string,
         sim_startime, sim_endtime, grid_resolution, prcp_timestep=24, pet_timestep=24):
-    """Create library file."""
+    """
+    Create library file.
+    """
 
     start_year, start_month, start_day = get_date_components(sim_startime)
     end_year, end_month, end_day = get_date_components(sim_endtime)
@@ -266,12 +277,12 @@ def create_library_file(
         '<PeMap>{}_Cells.asc</PeMap>'.format(catch),
         '<VegetationDetails>',
         '<VegetationDetail>Veg Type #, Vegetation Type, Canopy storage capacity (mm), Leaf area index, '
-        'Maximum rooting depth(m), AE/PE at field capacity,Strickler overland flow coefficient</VegetationDetail>',
+        'Maximum rooting depth(m), AE/PE at field capacity, Strickler overland flow coefficient</VegetationDetail>',
         veg_string,
         '</VegetationDetails>',
         '<SoilProperties>',
         '<SoilProperty>Soil Number,Soil Type, Saturated Water Content, Residual Water Content, Saturated Conductivity '
-        '(m/day), vanGenuchten- alpha (cm-1), vanGenuchten-n</SoilProperty> Avoid spaces in the Soil type names',
+        '(m/day), vanGenuchten- alpha (cm-1), vanGenuchten-n</SoilProperty>#--Avoid spaces in the Soil type names--#',
         soil_types_string,
         '</SoilProperties>',
         '<SoilDetails>',
@@ -291,26 +302,67 @@ def create_library_file(
         '<EndDay>{}</EndDay>'.format(end_day, '02'),
         '<EndMonth>{}</EndMonth>'.format(end_month, '02'),
         '<EndYear>{}</EndYear>'.format(end_year),
-        f'<RiverGridSquaresAccumulated>{grid_accumulation_value}</RiverGridSquaresAccumulated> Number of upstream '
-        'grid squares needed to produce a river channel. A larger number will have fewer river channels.',
-        '<DropFromGridToChannelDepth>2</DropFromGridToChannelDepth> Minimum value is 2 (standard for 1km).If there are '
-        'numerical problems with error 1060 this can be increased.',
-        f'<MinimumDropBetweenChannels>{channel_drop_value}</MinimumDropBetweenChannels> Depends on the grid size and '
-        'catchment steepness. 1m/1km is a sensible starting point but more gently sloping catchments it can be reduced.',
-        '<RegularTimestep>1.0</RegularTimestep> This is the standard Shetran timestep it is automatically reduced in '
-        'rain. The standard value is 1 hour. The maximum allowed value is 2 hours.',
-        '<IncreasingTimestep>0.05</IncreasingTimestep> Speed of increase in timestep after rainfall back to the '
+        f'<RiverGridSquaresAccumulated>{grid_accumulation_value}</RiverGridSquaresAccumulated>#--Number of upstream '
+        'grid squares needed to produce a river channel. A larger number will have fewer river channels.--#',
+        '<DropFromGridToChannelDepth>2</DropFromGridToChannelDepth>#--Minimum value is 2 (standard for 1km). If there '
+        'are numerical problems with error 1060 this can be increased.--#',
+        f'<MinimumDropBetweenChannels>{channel_drop_value}</MinimumDropBetweenChannels>#--Depends on the grid size and '
+        'catchment steepness. 1m/1km is a sensible starting point but more gently sloping catchments it can be reduced.--#',
+        '<RegularTimestep>1.0</RegularTimestep>#--This is the standard Shetran timestep it is automatically reduced in '
+        'rain. The standard value is 1 hour. The maximum allowed value is 2 hours.--#',
+        '<IncreasingTimestep>0.05</IncreasingTimestep>#--Speed of increase in timestep after rainfall back to the '
         'standard timestep. The standard value is 0.05. If if there are numerical problems with error 1060 it can be '
-        'reduced to 0.01 but the simulation will take longer.',
-        '<SimulatedDischargeTimestep>24.0</SimulatedDischargeTimestep> This should be the same as the measured '
-        'discharge.',
-        '<SnowmeltDegreeDayFactor>0.0002</SnowmeltDegreeDayFactor> Units  = mm s-1 C-1',
+        'reduced to 0.01 but the simulation will take longer.--#',
+        '<SimulatedDischargeTimestep>24.0</SimulatedDischargeTimestep>#--This should be the same as the measured '
+        'discharge.--#',
+        '<SnowmeltDegreeDayFactor>0.0002</SnowmeltDegreeDayFactor>#--Units  = mm s-1 C-1--#',
         '</ShetranInput>',
     ]
     output_string = '\n'.join(output_list)
 
     with open(sim_output_folder + catch + "_LibraryFile.xml", "w") as f:
         f.write(output_string)
+
+
+def copy_library_inputs(
+        library_filepath, new_folder, required_files=None, copy_library=True):
+    """
+    Copy the library file and all the required files to a new folder.
+    :param library_filepath: Path to the library file to copy from.
+    :param new_folder: Path to the new folder to copy to.
+    :param required_files: List of strings to search for in the library file to identify required files. Default are:
+    <DEMMeanFileName>, <DEMminFileName>, <MaskFileName>, <VegMap>, <SoilMap>, <LakeMap>, <PrecipMap>, <PeMap>,
+    <PrecipitationTimeSeriesData>, <EvaporationTimeSeriesData>, <MaxTempTimeSeriesData>. These will be set as default
+    if required_files is not set or left as None.
+    :param copy_library: True or False. If true, the library file will also be copied.
+    """
+
+    # Load in the library file and add relevant lines to a list:
+    if required_files is None:
+        required_files = [
+            "<DEMMeanFileName>", "<DEMminFileName>", "<MaskFileName>",
+            "<VegMap>", "<SoilMap>", "<LakeMap>",
+            "<PrecipMap>", "<PeMap>", "<PrecipitationTimeSeriesData>",
+            "<EvaporationTimeSeriesData>", "<MaxTempTimeSeriesData>"]
+
+    library_lines = []
+    with open(library_filepath, "r") as library:
+        for line in library:
+            for rf in required_files:
+                if line.startswith(rf):
+                    library_lines.append(line)
+
+    # Get the directory to copy from:
+    old_folder = os.path.dirname(library_filepath)
+
+    # Copy library file across:
+    if copy_library:
+        shutil.copyfile(library_filepath, os.path.join(new_folder, os.path.basename(library_filepath)))
+
+    # Run through the files from the library file and copy them across to the new folder:
+    for file in library_lines:
+        file_name = file.split(">")[1].split("<")[0]
+        shutil.copyfile(os.path.join(old_folder, file_name), os.path.join(new_folder, file_name))
 
 
 def find_libraryfile_in_folder(folder_path):
@@ -682,14 +734,15 @@ def process_catchment(
             static_inputs, xll, yll, ncols, nrows, cellsize, output_subfolder, headers, catch, mask)
 
         # Get strings of vegetation and soil properties/details for library file
-        # print(catch, ": creating vegetation (land use) and soil strings...")
+        # print(catch, ": creating vegetation (land use) strings...")
         veg_string = get_veg_string(vegetation_array, static_inputs)
+        # print(catch, ": creating soil strings...")
         soil_types_string, soil_cols_string = get_soil_strings(orig_soil_types, new_soil_types, static_inputs)
-
         # Create library file
+        # TODO - add the filepaths to the top of the library file these are stored in the static_inputs.
         # print(catch, ": creating library file...")
         create_library_file(output_subfolder, catch, veg_string, soil_types_string, soil_cols_string,
-                            simulation_startime, simulation_endtime, grid_resolution=resolution)
+                            simulation_startime, simulation_endtime, grid_resolution=resolution, )
 
         # Create climate time series files (and cell ID map)
         if produce_climate:
@@ -866,8 +919,10 @@ def read_static_asc_csv(DEM_path, DEMminimum_path,
                         NFM_max=False, NFM_bal=False,
                         NFM_storage_path=None, NFM_forest_path=None):
     """
-    This should work in the same way as the original function, but uses direct paths instead of hardcoded file names. All rasters should be .asc files with 6 line headers.
+    This should work in the same way as the original function, but uses direct paths instead of hardcoded file names.
+    All rasters should be .asc files with 6 line headers.
     :param DEM_path_asc: raster map of the elevation (.asc format)
+    :returns: A dictionary of static inputs containing the x/y coordinates, the data array and the lookup values.
     """
 
     # Raise an error if there are multiple NFM maps selected:
@@ -886,18 +941,21 @@ def read_static_asc_csv(DEM_path, DEMminimum_path,
     ds = xr.Dataset({
         "elevation": (["y", "x"],
                       np.loadtxt(DEM_path, skiprows=6),
-                      {"units": "m"}),
+                      {"units": "m", "name": os.path.basename(DEM_path)}),
         "elevation_min": (["y", "x", ],
                           np.loadtxt(DEMminimum_path, skiprows=6),
-                          {"units": "m"}),
+                          {"units": "m", "name": os.path.basename(DEMminimum_path)}),
         "lake_presence": (["y", "x"],
-                          np.loadtxt(Lake_map_path, skiprows=6)),
+                          np.loadtxt(Lake_map_path, skiprows=6),
+                          {"name": os.path.basename(Lake_map_path)}),
         "land_cover": (["y", "x"],
                        np.loadtxt(Land_cover_map_path, skiprows=6),
-                       {"land_cover_key": pd.read_csv(Land_cover_table_path)}),
+                       {"land_cover_key": pd.read_csv(Land_cover_table_path),
+                        "name": os.path.basename(Land_cover_map_path)}),
         "subsurface": (["y", "x"],
                        np.loadtxt(Subsurface_map_path, skiprows=6),
-                       {"soil_key": pd.read_csv(Subsurface_table_path)})
+                       {"soil_key": pd.read_csv(Subsurface_table_path),
+                        "name": os.path.basename(Subsurface_map_path)})
     },
         coords={"easting": (["y", "x"], eastings_array, {"projection": "BNG"}),
                 "northing": (["y", "x"], northings_array, {"projection": "BNG"}),

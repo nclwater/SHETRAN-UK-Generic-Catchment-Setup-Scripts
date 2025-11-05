@@ -147,13 +147,13 @@ import os
 
 # Climate input folders:
 create_climate_data = False  # [True/False]
-rainfall_input_folder = 'I:/CEH-GEAR/CEH-GEAR_rainfall_daily/'  # 'I:/HADUK/HADUK_precip_daily/' #
+rainfall_input_folder = 'I:/HADUK/HADUK_precip_daily/'  # 'I:/CEH-GEAR/CEH-GEAR_rainfall_daily/'  #
 temperature_input_folder = 'I:/CHESS/CHESS_temperature_daily/'
 PET_input_folder = 'I:/CHESS/CHESS_PET_daily/'
 
 # Set Model periods (model will include given days): 'yyyy-mm-dd'
 start_time = '1980-01-01'
-end_time = '2019-12-31'
+end_time = '1980-01-31'
 
 # Model Resolution: This controls channel parameters in the Library file
 resolution = 1000  # [Cell size in meters - options are: 1000, 500, 200, 100. Integer]
@@ -164,11 +164,9 @@ raw_input_folder = "I:/SHETRAN_GB_2021/02_Input_Data/00 - Raw ASCII inputs for S
 # --- Set Processing Methods -----------------------------------
 process_single_catchment = dict(
     single=True,
-    simulation_name='Heigham',
-    mask_path="C:/BenSmith/Wensum at Heigham - 1000m.asc",  # "I:/SHETRAN_GB_2021/02_Input_Data/1kmBngMasks_Processed/4006_Mask.txt",
-    output_folder="S:/11 - Anglian Water Catchments (HEIF Grant 2025)/New setup with superficials/Heigham/")  # end with '/'
-    # output_folder="I:/SHETRAN_GB_2021/04_Historical_Simulations/SHETRAN_UK_APM_Historical_HADUK/4006/")  # end with '/'
-    # output_folder="S:/02 - Python Optimiser/02_Simulations/PhD Simulations/43018/"
+    simulation_name='39065',
+    mask_path="I:/SHETRAN_GB_2021/02_Input_Data/1kmBngMasks_Processed/39065_Mask.txt",
+    output_folder="S:/02 - Python Optimiser/02_Simulations/Chalk Catchments/39065/")  # end with '/'
 
 # Choose Single / Multiprocessing:
 multiprocessing = dict(
@@ -182,18 +180,19 @@ multiprocessing = dict(
     group="1")  # String. Not used when use_groups == False.
 
 
-# --- Set Non-Default Land Cover Types --- 1km Only ------------------------
-
-# Urban development: if you wish to use land cover from the Newcastle University Urban Development Model (SELECT ONE).
-Use_UrbanDevelopmentModel_2017 = False  # True / False (Default)
-Use_UrbanDevelopmentModel_SSP2_2050 = False
-Use_UrbanDevelopmentModel_SSP2_2080 = False
-Use_UrbanDevelopmentModel_SSP4_2050 = False
-Use_UrbanDevelopmentModel_SSP4_2080 = False
-
-# Natural Flood Management: if you wish to use additional forest and storage from Sayers and Partners (SELECT ONE).
-Use_NFM_Max_Woodland_Storage_Addition = False  # True /False (Default)
-Use_NFM_Bal_Woodland_Storage_Addition = False
+# # --- Set Non-Default Land Cover Types --- 1km Only ------------------------
+# This is no longer in use, it was used for building the OpenCLIM simulations but has since been dropped and
+# is not backwards compatible. It can probably be added back in if needed...
+# # Urban development: if you wish to use land cover from the Newcastle University Urban Development Model (SELECT ONE).
+# Use_UrbanDevelopmentModel_2017 = False  # True / False (Default)
+# Use_UrbanDevelopmentModel_SSP2_2050 = False
+# Use_UrbanDevelopmentModel_SSP2_2080 = False
+# Use_UrbanDevelopmentModel_SSP4_2050 = False
+# Use_UrbanDevelopmentModel_SSP4_2080 = False
+#
+# # Natural Flood Management: if you wish to use additional forest and storage from Sayers and Partners (SELECT ONE).
+# Use_NFM_Max_Woodland_Storage_Addition = False  # True /False (Default)
+# Use_NFM_Bal_Woodland_Storage_Addition = False
 
 
 # -------------------------------------------------------------
@@ -221,10 +220,10 @@ if __name__ == "__main__":
         DEM_path=os.path.join(raw_input_folder, 'SHETRAN_UK_DEM.asc'),
         DEMminimum_path=os.path.join(raw_input_folder, 'SHETRAN_UK_minDEM.asc'),
         Lake_map_path=os.path.join(raw_input_folder, 'SHETRAN_UK_lake_presence.asc'),
-        Land_cover_map_path=os.path.join(raw_input_folder, 'SHETRAN_UK_LandCover.asc'),
-        Land_cover_table_path=os.path.join(raw_input_folder, 'Vegetation_Details.csv'),
-        Subsurface_map_path=os.path.join(raw_input_folder, 'SHETRAN_UK_Subsurface_ESD_BGSsuper_HydroGeo.asc'),
-        Subsurface_table_path=os.path.join(raw_input_folder, 'SHETRAN_UK_Subsurface_ESD_BGSsuper_HydroGeo.csv'),
+        Land_cover_map_path=os.path.join(raw_input_folder, 'SHETRAN_UK_LandCover_CEH2007.asc'),
+        Land_cover_table_path=os.path.join(raw_input_folder, 'SHETRAN_UK_LandCover_CEH2007.csv'),
+        Subsurface_map_path=os.path.join(raw_input_folder, 'SHETRAN_UK_Subsurface_ESD_BGSsuper_BGShydrogeol.asc'),
+        Subsurface_table_path=os.path.join(raw_input_folder, 'SHETRAN_UK_Subsurface_ESD_BGSsuper_BGShydrogeol.csv'),
         NFM_max=False, NFM_bal=False,
         NFM_storage_path=None, NFM_forest_path=None)
 
@@ -322,3 +321,4 @@ if __name__ == "__main__":
                                      pet_data_folder=PET_input_folder)
                 time.sleep(1)
     print("Finished Processing Catchments")
+
