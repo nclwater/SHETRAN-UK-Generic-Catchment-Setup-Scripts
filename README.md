@@ -6,10 +6,13 @@ Simulations can be set up from different gridded historical climate data (HadUK,
 Timeseries datasets are not included in this repository. Code is included on how to build the static datasets (rasters and lookup tables) as well as some suggested parameters, although these will most likely need calibrating for different catchments.
 
 ## Scripts
-- **Create SHETRAN Raster Data.ipynb:** This notebook can be used to generate the raster and lookup table datasets that are needed to setup the catchments. These can be made at a variety of resolutions. All input datasets are available online.
-- **SHETRAN_GB_Master_Setup_Functions.py:** Functions for setting up SHETRAN catchment models. These sample input datasets, build library files, and lots of useful functions for manipulating SHETRAN input files.
-- **SHETRAN_Post_Simulation_Functions.py:** Functions that focus on post-processing of SHETRAN results - typically plotting calculating performance.
-- **SHETRAN_GB_Master_Setup.py:** This is the main script used for implementing the functions in the scripts above. This is setup for use on the Newcastle computing system, but should be transferable to other machines.
+- **01 - Build SHETRAN Input Datasets.ipynb:** This notebook can be used to generate the raster and lookup table datasets that are needed to setup the catchments. These can be made at a variety of resolutions. All input datasets are available online.
+- **02 - Functions - Model Set Up.py:** Functions for setting up SHETRAN catchment models. These sample input datasets, build library files, and lots of useful functions for manipulating SHETRAN input files.
+- **03 - SHETRAN UK Catchment Set Up Script.py:** This is the main script used for implementing the functions in the scripts above. This is setup for use on the Newcastle computing system, but should be transferable to other machines.
+- **04 - Functions - Model Visualisation.py:** Functions that focus on post-processing of SHETRAN results - typically plotting calculating performance.
+- **05 - Notebook - General Python for SHETRAN.ipynb:** An example notebook for dealing with SHETRAN files with examples from other packages. 
+- **06 - Notebook - Visualisation.ipynb:** Some example visualisations of SHETRAN outputs. 
+- **07 - Notebook - Merge Nested SHETRAN Models.ipynb:** A notebook showing how to take nested SHETRAN catchments and assimilate them into a larger model.
 
 ## Data
 For information on the datasets used, see the Create SHETRAN Raster Data notebook and the resources below.
