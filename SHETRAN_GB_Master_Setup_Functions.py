@@ -9,7 +9,7 @@
 # be backwards compatible and as simple as possible to aid future
 # users.
 #
-# Notes:
+# --- Notes ---------------------------------------------------
 # CHESS rainfall reads in the Y coordinates backwards, if you
 # change the meteorological inputs then check the coordinates.
 # The .nc files are loaded in chunks to speed up the processes.
@@ -17,30 +17,42 @@
 # install dask if needed).
 # The script now accepts rainfall from HADUK and CHESS datasets.
 # PET and Temperature have only been tested with HADUK data.
+#
+# import hydroeval as he  # Slightly tricky to install needed for
+# calculating objective functions https://pypi.org/project/hydroeval/
+# Open conda prompt: pip install hydroeval
+#
+# Xarray can have issues if its dependencies are not installed.
+# It will say: 'found the following matches with the input file
+# in Xarray's IO backends: ['netcdf4', 'h5netcdf']. But their
+# dependencies may not be installed...'.
+# To solve this, open conda prompt, activate your environment:
+# >>> conda install netcdf4 h5netcdf
 # -------------------------------------------------------------
+
 
 # --- Load in Packages ----------------------------------------
 import os
-import xarray as xr
-import pandas as pd
-import geopandas as gpd
 import copy
+import pandas as pd
+import numpy as np
 import datetime
 from datetime import timedelta
 import multiprocessing as mp
-import numpy as np
-import rasterio
-from rasterio.features import rasterize
-from scipy.ndimage import binary_fill_holes
 import warnings
 import shutil
 import subprocess
 from subprocess import Popen, PIPE, STDOUT
+
 # import time
 # import itertools
 
-# import hydroeval as he  # Slightly tricky to install needed for calculating objective functions
-# https://pypi.org/project/hydroeval/ - open conda prompt: pip install hydroeval
+# The following packages are larger and so are loaded within functions:
+# import xarray as xr
+# import geopandas as gpd
+# import rasterio as rio
+# from rasterio.features import rasterize
+# from scipy.ndimage import binary_fill_holes
 
 
 # --- Create Functions ----------------------------------------
@@ -218,6 +230,9 @@ def get_soil_strings(orig_soil_types, new_soil_types, static_input_dataset):
     # Select the relevant soil property information for the library file:
     soil_cols = soil_props.loc[:, ["Soil Category", "Soil Layer", "Soil_Type_Code", "Depth at base of layer (m)"]]
 
+    # Make sure that the soil_cols Soil Category are integers (because it is simpler to read):
+    soil_cols = soil_cols.astype({"Soil Category": int})
+
     # Convert the subsets of soil properties into two single strings (, and \n separators):
     soil_types_string = soil_types.to_csv(header=False, index=False)
     soil_cols_string = soil_cols.to_csv(header=False, index=False)
@@ -227,7 +242,7 @@ def get_soil_strings(orig_soil_types, new_soil_types, static_input_dataset):
     line_counter = 0
     for line in soil_types_string[:-1].split('\n'):  # Split on each newline
         if Notes:  # Standard XML syntax (<!-- Comment -->) will break the prepare.exe script (11/2025)
-            tmp.append(f'<SoilProperty>{line.rstrip()}</SoilProperty> #-- {str(Soil_type_notes[line_counter])} --#')
+            tmp.append(f'<SoilProperty>{line.rstrip()}</SoilProperty>#-- {str(Soil_type_notes[line_counter])} --#')
             line_counter += 1
         else:
             tmp.append('<SoilProperty>' + line.rstrip() + '</SoilProperty>')
@@ -252,9 +267,12 @@ def calculate_library_channel_parameters(grid_resolution):
 
 def create_library_file(
         sim_output_folder, catch, veg_string, soil_types_string, soil_cols_string,
-        sim_startime, sim_endtime, grid_resolution, prcp_timestep=24, pet_timestep=24):
+        sim_startime, sim_endtime, grid_resolution, prcp_timestep=24, pet_timestep=24,
+        static_input_names=None):
     """
     Create library file.
+    :param dict static_input_names: a dictionary of names of the files used for each input. These will be added to
+            the filepaths at the top of the library file to help track the model datasources.
     """
 
     start_year, start_month, start_day = get_date_components(sim_startime)
@@ -263,18 +281,24 @@ def create_library_file(
     # Calculate channel parameters for library file:
     grid_accumulation_value, channel_drop_value = calculate_library_channel_parameters(grid_resolution)
 
+    # Set the static_input_names to blanks if they are not set:
+    if static_input_names is None:
+        static_input_names = {'elevation': '', 'elevation_min': '', 'lake_presence': '',
+                              'land_cover': '', 'subsurface': '',
+                              'rainfall': '', 'PET': '', 'temperature': ''}
+
     output_list = [
         '<?xml version=1.0?><ShetranInput>',
-        '<ProjectFile>{}_ProjectFile</ProjectFile>'.format(catch),
-        '<CatchmentName>{}</CatchmentName>'.format(catch),
-        '<DEMMeanFileName>{}_DEM.asc</DEMMeanFileName>'.format(catch),
-        '<DEMminFileName>{}_MinDEM.asc</DEMMinFileName>'.format(catch),
-        '<MaskFileName>{}_Mask.asc</MaskFileName>'.format(catch),
-        '<VegMap>{}_LandCover.asc</VegMap>'.format(catch),
-        '<SoilMap>{}_Soil.asc</SoilMap>'.format(catch),
-        '<LakeMap>{}_Lake.asc</LakeMap>'.format(catch),
-        '<PrecipMap>{}_Cells.asc</PrecipMap>'.format(catch),
-        '<PeMap>{}_Cells.asc</PeMap>'.format(catch),
+        f'<ProjectFile>{catch}_ProjectFile</ProjectFile>',
+        f'<CatchmentName>{catch}</CatchmentName>',
+        f'<DEMMeanFileName>{catch}_DEM.asc</DEMMeanFileName>{static_input_names["elevation"]}',
+        f'<DEMminFileName>{catch}_MinDEM.asc</DEMMinFileName>{static_input_names["elevation_min"]}',
+        f'<MaskFileName>{catch}_Mask.asc</MaskFileName>',
+        f'<VegMap>{catch}_LandCover.asc</VegMap>{static_input_names["land_cover"]}',
+        f'<SoilMap>{catch}_Soil.asc</SoilMap>{static_input_names["subsurface"]}',
+        f'<LakeMap>{catch}_Lake.asc</LakeMap>{static_input_names["lake_presence"]}',
+        f'<PrecipMap>{catch}_Cells.asc</PrecipMap>',
+        f'<PeMap>{catch}_Cells.asc</PeMap>',
         '<VegetationDetails>',
         '<VegetationDetail>Veg Type #, Vegetation Type, Canopy storage capacity (mm), Leaf area index, '
         'Maximum rooting depth(m), AE/PE at field capacity, Strickler overland flow coefficient</VegetationDetail>',
@@ -290,12 +314,12 @@ def create_library_file(
         soil_cols_string,
         '</SoilDetails>',
         '<InitialConditions>0</InitialConditions>',
-        '<PrecipitationTimeSeriesData>{}_Precip.csv</PrecipitationTimeSeriesData>'.format(catch),
-        '<PrecipitationTimeStep>{}</PrecipitationTimeStep>'.format(prcp_timestep),
-        '<EvaporationTimeSeriesData>{}_PET.csv</EvaporationTimeSeriesData>'.format(catch),
-        '<EvaporationTimeStep>{}</EvaporationTimeStep>'.format(pet_timestep),
-        '<MaxTempTimeSeriesData>{}_Temp.csv</MaxTempTimeSeriesData>'.format(catch),
-        '<MinTempTimeSeriesData>{}_Temp.csv</MinTempTimeSeriesData>'.format(catch),
+        f'<PrecipitationTimeSeriesData>{catch}_Precip.csv</PrecipitationTimeSeriesData>{static_input_names["rainfall"]}',
+        f'<PrecipitationTimeStep>{prcp_timestep}</PrecipitationTimeStep>',
+        f'<EvaporationTimeSeriesData>{catch}_PET.csv</EvaporationTimeSeriesData>{static_input_names["PET"]}',
+        f'<EvaporationTimeStep>{pet_timestep}</EvaporationTimeStep>',
+        f'<MaxTempTimeSeriesData>{catch}_Temp.csv</MaxTempTimeSeriesData>{static_input_names["temperature"]}',
+        f'<MinTempTimeSeriesData>{catch}_Temp.csv</MinTempTimeSeriesData>{static_input_names["temperature"]}',
         '<StartDay>{}</StartDay>'.format(start_day, '02'),
         '<StartMonth>{}</StartMonth>'.format(start_month, '02'),
         '<StartYear>{}</StartYear>'.format(start_year),
@@ -499,7 +523,8 @@ def find_CHESS_temperature_or_PET_files(folder_path, year_from, year_to):
 
 
 def load_and_crop_xarray(filepath, mask, x_dim="x", y_dim="y", variable_name="rainfall_amount"):
-    
+    import xarray as xr
+
     # Load the dataset
     ds = xr.open_dataset(filepath)
     # Loading the data in chunks "(filepath, chunks={x_dim: 100, y_dim: 100})" will speed up the code significantly..
@@ -547,8 +572,12 @@ def build_climate_data_with_xarray(cells_map_filepath, netCDF_filepath_list, h5_
     # :param rain_var_name: variable name for rainfall (if None, uses h5_variable_name)
     :return:
     """
+
+    import xarray as xr
+    import rasterio as rio
+
     # Load the ASCII raster of cell numbers:
-    with rasterio.open(cells_map_filepath) as src:
+    with rio.open(cells_map_filepath) as src:
         mask_data = src.read(1)  # Read the first (and likely only) band
         mask_transform = src.transform
 
@@ -738,11 +767,29 @@ def process_catchment(
         veg_string = get_veg_string(vegetation_array, static_inputs)
         # print(catch, ": creating soil strings...")
         soil_types_string, soil_cols_string = get_soil_strings(orig_soil_types, new_soil_types, static_inputs)
+
         # Create library file
-        # TODO - add the filepaths to the top of the library file these are stored in the static_inputs.
+        static_input_names = {
+            'elevation': f'#-- {static_inputs.elevation.filename} --#',
+            'elevation_min': f'#-- {static_inputs.elevation_min.filename} --#',
+            'lake_presence': f'#-- {static_inputs.lake_presence.filename} --#',
+            'land_cover': f'#-- {static_inputs.land_cover.filename} --#',
+            'subsurface': f'#-- {static_inputs.subsurface.filename} --#',
+        }
+        if produce_climate:
+            static_input_names['rainfall'] = f'#-- {prcp_data_folder.split(":")[1]} --#'
+            static_input_names['PET'] = f'#-- {pet_data_folder.split(":")[1]} --#'
+            static_input_names['temperature'] = f'#-- {tas_data_folder.split(":")[1]} --#'
+        else:
+            static_input_names['rainfall'] = ''
+            static_input_names['PET'] = ''
+            static_input_names['temperature'] = ''
+
+
         # print(catch, ": creating library file...")
         create_library_file(output_subfolder, catch, veg_string, soil_types_string, soil_cols_string,
-                            simulation_startime, simulation_endtime, grid_resolution=resolution, )
+                            simulation_startime, simulation_endtime, grid_resolution=resolution,
+                            static_input_names=static_input_names)
 
         # Create climate time series files (and cell ID map)
         if produce_climate:
@@ -911,7 +958,6 @@ def process_mp(mp_catchments, mp_mask_folders, mp_output_folders, mp_simulation_
 #     return ds
 
 
-
 def read_static_asc_csv(DEM_path, DEMminimum_path,
                         Lake_map_path,
                         Land_cover_map_path, Land_cover_table_path,
@@ -924,6 +970,8 @@ def read_static_asc_csv(DEM_path, DEMminimum_path,
     :param DEM_path_asc: raster map of the elevation (.asc format)
     :returns: A dictionary of static inputs containing the x/y coordinates, the data array and the lookup values.
     """
+
+    import xarray as xr
 
     # Raise an error if there are multiple NFM maps selected:
     if (NFM_max + NFM_bal) > 1:
@@ -941,21 +989,21 @@ def read_static_asc_csv(DEM_path, DEMminimum_path,
     ds = xr.Dataset({
         "elevation": (["y", "x"],
                       np.loadtxt(DEM_path, skiprows=6),
-                      {"units": "m", "name": os.path.basename(DEM_path)}),
+                      {"units": "m", "filename": os.path.basename(DEM_path)}),
         "elevation_min": (["y", "x", ],
                           np.loadtxt(DEMminimum_path, skiprows=6),
-                          {"units": "m", "name": os.path.basename(DEMminimum_path)}),
+                          {"units": "m", "filename": os.path.basename(DEMminimum_path)}),
         "lake_presence": (["y", "x"],
                           np.loadtxt(Lake_map_path, skiprows=6),
-                          {"name": os.path.basename(Lake_map_path)}),
+                          {"filename": os.path.basename(Lake_map_path)}),
         "land_cover": (["y", "x"],
                        np.loadtxt(Land_cover_map_path, skiprows=6),
                        {"land_cover_key": pd.read_csv(Land_cover_table_path),
-                        "name": os.path.basename(Land_cover_map_path)}),
+                        "filename": os.path.basename(Land_cover_map_path)}),
         "subsurface": (["y", "x"],
                        np.loadtxt(Subsurface_map_path, skiprows=6),
                        {"soil_key": pd.read_csv(Subsurface_table_path),
-                        "name": os.path.basename(Subsurface_map_path)})
+                        "filename": os.path.basename(Subsurface_map_path)})
     },
         coords={"easting": (["y", "x"], eastings_array, {"projection": "BNG"}),
                 "northing": (["y", "x"], northings_array, {"projection": "BNG"}),
@@ -1010,6 +1058,11 @@ def create_catchment_mask_from_shapefile(shapefile_path, output_ascii_path, reso
     - fix_holes: Boolean flag, if True, fills internal holes in the mask.
     """
 
+    import geopandas as gpd
+    import rasterio as rio
+    from rasterio.features import rasterize
+    from scipy.ndimage import binary_fill_holes
+
     # Load the shapefile
     gdf = gpd.read_file(shapefile_path)
 
@@ -1027,7 +1080,7 @@ def create_catchment_mask_from_shapefile(shapefile_path, output_ascii_path, reso
     height = int((maxy - miny) / resolution)
 
     # Define transform
-    transform = rasterio.transform.from_origin(minx, maxy, resolution, resolution)
+    transform = rio.transform.from_origin(minx, maxy, resolution, resolution)
 
     # Create an empty raster with no_data_value
     raster_data = np.full((height, width), -9999, dtype=np.float32)
@@ -1044,7 +1097,7 @@ def create_catchment_mask_from_shapefile(shapefile_path, output_ascii_path, reso
         rasterized[filled_mask == 1] = 0  # Apply filled mask to raster
 
     # Save to ASCII file
-    with rasterio.open(output_ascii_path, "w", driver="AAIGrid", height=height, width=width, count=1,
+    with rio.open(output_ascii_path, "w", driver="AAIGrid", height=height, width=width, count=1,
                        dtype=np.float32, crs=gdf.crs, transform=transform, nodata=-9999) as dst:
         dst.write(rasterized, 1)
 
