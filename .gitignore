@@ -129,7 +129,4 @@ dmypy.json
 .pyre/
 
 # Directories and files
-SS/
-.Testing Climate Loop.ipynb
-.test - read_met_data.py
-.Data processin exedcution script.py
+Exclude/
