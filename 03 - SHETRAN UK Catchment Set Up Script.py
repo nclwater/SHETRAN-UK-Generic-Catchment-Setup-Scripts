@@ -146,14 +146,14 @@ import os
 # --- Set File Paths -------------------------------------------
 
 # Climate input folders:
-create_climate_data = False  # [True/False]
+create_climate_data = True  # [True/False]
 rainfall_input_folder = 'I:/HADUK/HADUK_precip_daily/'  # 'I:/CEH-GEAR/CEH-GEAR_rainfall_daily/'  #
 temperature_input_folder = 'I:/CHESS/CHESS_temperature_daily/'
 PET_input_folder = 'I:/CHESS/CHESS_PET_daily/'
 
 # Set Model periods (model will include given days): 'yyyy-mm-dd'
 start_time = '1980-01-01'
-end_time = '1980-01-31'
+end_time = '2019-12-31'
 
 # Model Resolution: This controls channel parameters in the Library file
 resolution = 1000  # [Cell size in meters - options are: 1000, 500, 200, 100. Integer]
@@ -162,11 +162,13 @@ resolution = 1000  # [Cell size in meters - options are: 1000, 500, 200, 100. In
 raw_input_folder = "I:/SHETRAN_GB_2021/02_Input_Data/00 - Raw ASCII inputs for SHETRAN UK/1000m_v2/"  # (Set the number to the resolution)
 
 # --- Set Processing Methods -----------------------------------
+# catchments = ['39065', '39101', '39037', '42026',  '25003', '23006', '24003', '23007']
+catchment = '23007'
 process_single_catchment = dict(
     single=True,
-    simulation_name='39065',
-    mask_path="I:/SHETRAN_GB_2021/02_Input_Data/1kmBngMasks_Processed/39065_Mask.txt",
-    output_folder="S:/02 - Python Optimiser/02_Simulations/Chalk Catchments/39065/")  # end with '/'
+    simulation_name=f'{catchment}',
+    mask_path=f"I:/SHETRAN_GB_2021/02_Input_Data/1kmBngMasks_Processed/{catchment}_Mask.txt",
+    output_folder=f"S:/02 - Python Optimiser/02_Simulations/Chalk Catchments/{catchment}/")  # end with '/'
 
 # Choose Single / Multiprocessing:
 multiprocessing = dict(
