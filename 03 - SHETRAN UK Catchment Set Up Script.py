@@ -163,7 +163,7 @@ raw_input_folder = "I:/SHETRAN_GB_2021/02_Input_Data/00 - Raw ASCII inputs for S
 
 # --- Set Processing Methods -----------------------------------
 # catchments = ['39065', '39101', '39037', '42026',  '25003', '23006', '24003', '23007']
-catchment = '23007'
+catchment = '39065'
 process_single_catchment = dict(
     single=True,
     simulation_name=f'{catchment}',
