@@ -7,9 +7,9 @@ Timeseries datasets are not included in this repository. Code is included on how
 
 ## Scripts
 - **01 - Build SHETRAN Input Datasets.ipynb:** This notebook can be used to generate the raster and lookup table datasets that are needed to setup the catchments. These can be made at a variety of resolutions. All input datasets are available online.
-- **02 - Functions - Model Set Up.py:** Functions for setting up SHETRAN catchment models. These sample input datasets, build library files, and lots of useful functions for manipulating SHETRAN input files.
+- **Functions_Model_Set_Up.py:** Functions for setting up SHETRAN catchment models. These sample input datasets, build library files, and lots of useful functions for manipulating SHETRAN input files. Function filenames have no spaces so that they can be imported into other scripts. 
 - **03 - SHETRAN UK Catchment Set Up Script.py:** This is the main script used for implementing the functions in the scripts above. This is setup for use on the Newcastle computing system, but should be transferable to other machines.
-- **04 - Functions - Model Visualisation.py:** Functions that focus on post-processing of SHETRAN results - typically plotting calculating performance.
+- **Functions_Model_Visualisation.py:** Functions that focus on post-processing of SHETRAN results - typically plotting calculating performance.
 - **05 - Notebook - General Python for SHETRAN.ipynb:** An example notebook for dealing with SHETRAN files with examples from other packages. 
 - **06 - Notebook - Visualisation.ipynb:** Some example visualisations of SHETRAN outputs. 
 - **07 - Notebook - Merge Nested SHETRAN Models.ipynb:** A notebook showing how to take nested SHETRAN catchments and assimilate them into a larger model.
