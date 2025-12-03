@@ -43,6 +43,7 @@ import warnings
 import shutil
 import subprocess
 from subprocess import Popen, PIPE, STDOUT
+import zipfile
 
 # import time
 # import itertools
@@ -134,11 +135,50 @@ def cell_reduce(array, block_size, func=np.nanmean):
     - block_size: Factor by which to reduce the resolution.
     - func: Aggregation function (e.g., np.nanmean, np.nanmin, np.nanmax).
             Recomended to use nanmean etc. else you will lose coverage
+
+    TODO: 
+    Traceback (most recent call last):
+    File "I:\SHETRAN_GB_2021\01_Scripts\SHETRAN_UK_Generic_Catchment_Setup_Scripts\Exclude\python_run_file.py", line xxxx, in <module>
+        DEM = she.cell_reduce(national_OS50, block_size, np.mean)
+    File "I:\SHETRAN_GB_2021/01_Scripts/SHETRAN_UK_Generic_Catchment_Setup_Scripts\Functions_Model_Set_Up.py", line 141, in cell_reduce
+        return func(array.reshape(shape), axis=(1, 3), )
+        ValueError: cannot reshape array of size 328120400 into shape (248,100,132,100)
     """
     shape = (array.shape[0] // block_size, block_size, array.shape[1] // block_size, block_size,)
 
     return func(array.reshape(shape), axis=(1, 3), )
 
+
+def cell_reduce_with_pad(array, block_size, func=np.nanmean):
+    """
+    Resample a NumPy array by reducing its resolution using block aggregation.
+    Pads (with NaN) to make dimensions divisible by block_size, then applies func
+    over each block (axis=(1,3)). Returns reduced array of shape
+    (rows//block_size, cols//block_size).
+    This was made due to errors with the original cell_reduce function.
+    """
+    import numpy as np
+
+    if array.ndim != 2:
+        raise ValueError("cell_reduce expects a 2D array")
+
+    h, w = array.shape
+    pad_h = (-h) % block_size
+    pad_w = (-w) % block_size
+
+    # Convert integers to float so NaN padding is possible
+    if (pad_h or pad_w) and np.issubdtype(array.dtype, np.integer):
+        array = array.astype(float)
+
+    if pad_h or pad_w:
+        array = np.pad(array, ((0, pad_h), (0, pad_w)), mode='constant', constant_values=np.nan)
+
+    new_h, new_w = array.shape
+    shape = (new_h // block_size, block_size, new_w // block_size, block_size)
+
+    # reshape into 4D blocks and aggregate over the block axes
+    reduced = func(array.reshape(shape), axis=(1, 3))
+    return reduced
 
 # --- Get Date Components from a data string ------------------
 def get_date_components(date_string, fmt='%Y-%m-%d'):
@@ -209,14 +249,16 @@ def get_soil_strings(orig_soil_types, new_soil_types, static_input_dataset):
 
     # If there is a Notes column, add this to the dataframe:
     if 'Notes' in soil_props.columns:
-        Notes = True
+        notes = True
         soil_types['Notes'] = soil_props.loc[:, 'Notes']
+    else:
+        notes = False
 
     # Drop duplications:
     soil_types.drop_duplicates(inplace=True)
 
     # Separate the Notes column from the soil_types dataframe as these will be treated differently:
-    if Notes:
+    if notes:
         Soil_type_notes = soil_types['Notes'].values
         soil_types = soil_types.drop('Notes', axis=1)
 
@@ -241,7 +283,7 @@ def get_soil_strings(orig_soil_types, new_soil_types, static_input_dataset):
     tmp = []
     line_counter = 0
     for line in soil_types_string[:-1].split('\n'):  # Split on each newline
-        if Notes:  # Standard XML syntax (<!-- Comment -->) will break the prepare.exe script (11/2025)
+        if notes:  # Standard XML syntax (<!-- Comment -->) will break the prepare.exe script (11/2025)
             tmp.append(f'<SoilProperty>{line.rstrip()}</SoilProperty>#-- {str(Soil_type_notes[line_counter])} --#')
             line_counter += 1
         else:
@@ -1048,14 +1090,24 @@ def make_cell_map(mask_filepath, output_filepath=None, write=True):
     return m, d
 
 
-def create_catchment_mask_from_shapefile(shapefile_path, output_ascii_path, resolution, fix_holes=True):
+def create_catchment_mask_from_shapefile(shapefile_path, output_ascii_path, resolution, NA_value=-9999, fix_holes=True):
     """
     Converts a shapefile (proj:BNG) into a raster mask with specified resolution.
     Optionally fills any internal holes.
-    - shapefile_path: Path to the input shapefile.
-    - output_ascii_path: Path to save the output ASCII (.asc) raster file.
-    - resolution: The resolution (cell size) of the raster in map units.
-    - fix_holes: Boolean flag, if True, fills internal holes in the mask.
+    Script will automatically unzip any zipped shapefiles.
+
+    Parameters
+    ----------
+    shapefile_path: str
+        Path to the input shapefile.
+    output_ascii_path: str
+        Path to save the output ASCII (.asc) raster file.
+    resolution: int
+        The resolution (cell size) of the raster in map units. E.g. 1000
+    NA_value: int or float
+        The value to use for no-data areas in the raster.
+    fix_holes: Boolean flag
+        If True, fills internal holes in the mask.
     """
 
     import geopandas as gpd
@@ -1063,47 +1115,62 @@ def create_catchment_mask_from_shapefile(shapefile_path, output_ascii_path, reso
     from rasterio.features import rasterize
     from scipy.ndimage import binary_fill_holes
 
-    # Load the shapefile
+    # Check whether the shapefile is stil zipped and unzip if needed:
+    if zipfile.is_zipfile(shapefile_path):
+        with zipfile.ZipFile(shapefile_path, 'r') as zip_ref:
+            extract_path = os.path.dirname(shapefile_path)
+            temp_folder = os.path.join(extract_path, 'temp_unzip_folder')
+            zip_ref.extractall(temp_folder)
+        delete_folder = True
+        shapefile_path = temp_folder
+    else:
+        delete_folder = False
+
+    # Load the shapefile:
     gdf = gpd.read_file(shapefile_path)
 
-    # Get the bounding box of the shapefile
+    # Get the bounding box of the shapefile:
     minx, miny, maxx, maxy = gdf.total_bounds
 
-    # Round the bounding box to the nearest resolution
+    # Round/expand the bounding box to the nearest resolution:
     minx = np.floor(minx / resolution) * resolution
     miny = np.floor(miny / resolution) * resolution
     maxx = np.ceil(maxx / resolution) * resolution
     maxy = np.ceil(maxy / resolution) * resolution
 
-    # Compute raster dimensions
+    # Compute raster dimensions:
     width = int((maxx - minx) / resolution)
     height = int((maxy - miny) / resolution)
 
-    # Define transform
+    # Define transform:
     transform = rio.transform.from_origin(minx, maxy, resolution, resolution)
 
-    # Create an empty raster with no_data_value
-    raster_data = np.full((height, width), -9999, dtype=np.float32)
+    # Create an empty raster with no_data_value:
+    raster_data = np.full((height, width), NA_value, dtype=np.float32)
 
-    # Rasterize the shapefile (set inside-mask pixels to 0)
+    # Rasterize the shapefile (set inside-mask pixels to 0):
     shapes = [(geom, 0) for geom in gdf.geometry]
-    rasterized = rasterize(shapes, out_shape=raster_data.shape, transform=transform, fill=-9999,
-                           dtype=np.float32)
+    rasterized = rasterize(shapes, out_shape=raster_data.shape, transform=transform, 
+                           fill=NA_value, dtype=np.float32)
 
-    # If fix_holes is True, fill any holes in the mask
+    # If fix_holes is True, fill any holes in the mask:
     if fix_holes:
-        binary_mask = (rasterized != -9999).astype(int)  # Convert to binary
+        binary_mask = (rasterized != NA_value).astype(int)  # Convert to binary
         filled_mask = binary_fill_holes(binary_mask).astype(int)  # Fill holes
         rasterized[filled_mask == 1] = 0  # Apply filled mask to raster
 
-    # Save to ASCII file
+    # Save to ASCII file:
     with rio.open(output_ascii_path, "w", driver="AAIGrid", height=height, width=width, count=1,
-                       dtype=np.float32, crs=gdf.crs, transform=transform, nodata=-9999) as dst:
+                       dtype=np.float32, crs=gdf.crs, transform=transform, nodata=NA_value) as dst:
         dst.write(rasterized, 1)
 
-    print(f"Raster mask saved as: {output_ascii_path}")
-    if fix_holes:
-        print("Holes were detected and filled before saving.")
+    # If we created a temp folder then remove this:
+    if delete_folder:
+        shutil.rmtree(temp_folder)
+
+    # print(f"Raster mask saved as: {output_ascii_path}")
+    # if fix_holes:
+    #     print("Holes were detected and filled before saving.")
 
 
 # --- Get Date Components from a data string ------------------
