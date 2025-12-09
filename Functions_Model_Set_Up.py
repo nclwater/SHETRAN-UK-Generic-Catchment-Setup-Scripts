@@ -180,6 +180,117 @@ def cell_reduce_with_pad(array, block_size, func=np.nanmean):
     reduced = func(array.reshape(shape), axis=(1, 3))
     return reduced
 
+
+# Function for removing duplicates from maps and tables (e.g. soil/land cover inputs):
+def simplify_input_map(map_path, table_path, table_id_column_name=None, output_suffix='', map_output_path=None, table_output_path=None):
+    """ 
+    Simplify an input map by removing duplicated soil groups based on a provided table.
+    This will remap all duplicated groups to the first instance and then reindex the groups to start at 1.
+    Parameters:
+        map_path (str): Path to the input ASCII raster map.
+        table_path (str): Path to the CSV table containing soil or land cover data.
+        table_id_column_name (str): Name of the column in the table that contains soil or land cover category IDs. E.g. 'Soil Category'
+        output_suffix (str): Suffix to append to output file names.
+        map_output_path (str): Path to save the outputs - this will be the same as the input path if it is not provided. The output sufix will be added to this before the file extention.
+        table_output_path (str): Path to save the outputs - this will be the same as the input path if it is not provided. The output sufix will be added to this before the file extention.
+    """
+
+    print('Processing ' + os.path.basename(map_path))
+
+    # Set the output paths to the input paths if output paths are not provided:
+    if table_output_path is None:
+        table_output_path = table_path
+    if map_output_path is None:
+        map_output_path = map_path
+
+    # Load in the table
+    table_data = pd.read_csv(table_path)
+
+    # If there is not column ID given then assume that this is the first column (fairly safe for soil/land cover tables).
+    if table_id_column_name is None:
+        table_id_column_name = table_data.columns[0]
+
+    # >> Manually find duplicated soil groups:
+
+    # 1. Get the list of soil catagories:
+    table_catagories = table_data[table_id_column_name].unique()
+
+    # 2. For each category, combine the rows into a single string for comparison:
+    table_columns = table_data.columns[1:]
+    category_values = []
+    for catagory in table_catagories:
+        group = table_data[table_data[table_id_column_name] == catagory]
+        rows = group.loc[:, table_columns,].values
+        rows_string = ''
+        for row in rows:
+            for v in row:
+                rows_string += ',' + str(v)
+        category_values.append(rows_string)
+
+    # 3. Build a dataframe of categories and their full component strings.
+    df = pd.DataFrame({'category': table_catagories, 'strings': category_values})
+
+    # 4. Get a list of duplicated soil strings:
+    duplicates = df['strings'][df.duplicated(subset=['strings'], keep=False)].unique()
+
+    # 5. Create a list of diplicated soil categories and their mappings:
+    duplicate_mappings = {}
+    for duplicate in duplicates:
+        matching_rows = df[df['strings'] == duplicate]
+        catagories = matching_rows['category'].tolist()
+
+        # Map all but the first catagory to the first one:
+        for cat in catagories[0:]:
+            duplicate_mappings[cat] = catagories[0]
+
+    # 6. Remap the Soil categories in the table_data and drop the duplicates:
+    table_data[table_id_column_name] = table_data[table_id_column_name].map(lambda x: duplicate_mappings.get(x, x))
+    table_data = table_data.drop_duplicates(keep='first').reset_index(drop=True)
+
+    # 7. Load in the map and remap the soil categories:
+    mask, _, _, xll, yll, cellsize, nodata, _, _ = read_ascii_raster(map_path, data_type=int, replace_NA=False)
+    mask_flat = mask.flatten()
+    mask_flat = np.array([duplicate_mappings.get(val, val) for val in mask_flat])
+    mask_remapped = mask_flat.reshape(mask.shape)
+
+    # 8. Remap the soil categories to be consecutive again:
+    # a. Get the unique valid soil categories from table_data (excluding -9999)
+    unique_ids = np.unique(table_data[table_id_column_name])
+
+    # b. Create a mapping from old ID to new consecutive ID starting from 1
+    id_map = {old_id: new_id for new_id, old_id in enumerate(unique_ids, start=1)}
+
+    # c. Remap the Soil Category in table_data
+    table_data[table_id_column_name] = table_data[table_id_column_name].map(id_map)
+
+    # 9. Remap the mask using the same mapping
+    mask_reindexed = np.where(
+        np.isin(mask_remapped, list(id_map.keys())),
+        np.vectorize(id_map.get)(mask_remapped),
+        nodata
+    )
+
+    # 10. Save the deduped csv as a temporary file (this is so that if the script fails then we don't loose the original):
+    table_output_folder = os.path.dirname(table_output_path)
+    table_data.to_csv(os.path.join(table_output_folder, 'temp.csv'), index=False)
+
+    # 11. Save the remapped, reindexed mask as a temporary file (this is so that if the script fails then we don't loose the original):
+    map_output_folder = os.path.dirname(map_output_path)
+    write_ascii(
+        array=mask_reindexed,
+        ascii_ouput_path=os.path.join(map_output_folder, 'temp.asc'),
+        xllcorner=xll,
+        yllcorner=yll,
+        cellsize=cellsize,
+        NODATA_value=nodata,
+        data_format='%d'  # , data_format='%1.0f'
+    )
+
+    # 12. Overwrite the original files with the temporary files:
+    shutil.move(os.path.join(table_output_folder, 'temp.csv'), f"{output_suffix}.".join(table_output_path.split('.')))
+    shutil.move(os.path.join(map_output_folder, 'temp.asc'), f"{output_suffix}.".join(map_output_path.split('.')))
+
+
 # --- Get Date Components from a data string ------------------
 def get_date_components(date_string, fmt='%Y-%m-%d'):
     # "1980/01/01"
