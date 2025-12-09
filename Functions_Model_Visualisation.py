@@ -444,6 +444,54 @@ def plot_flow_datasets(flow_path_list: dict, sim_start_date=None, Figure_input=N
     return fig
 
 
+# --- Plot SHETRAN Rainfall Inputs Interactively -----------------------------
+def plot_climate_datasets(clim_path_list: dict, sim_start_date=None, Figure_input=None, ylabel='Rainfall (mm/day)'):  #  
+    """
+    This will plot an interactive line plot of mean climate input data. Assumes daily input.
+    Example:
+        paths = {
+        'Historical': 'myfolder/precip.csv',
+        'SHETRAN 69035': 'myfolder/precip_rcm01.csv
+        }
+        plot_flow_datasets(clim_path_list=paths)
+    :param clim_path_list: Dictionary of labels and paths to climate files.
+    :param sim_start_date: string 'dd/mm/yyyy' giving the simulation start date if the climate data does not have dates.
+    :param Figure_input: a plotly Figure to be updated. If starting a new figure, leave as None / blank.
+    :return:
+    """
+
+    # Set up figure either as fresh, or from the inputted figure:
+    fig = go.Figure() if Figure_input is None else Figure_input
+
+    # Run through each dictionary item.
+    for sim_name, sim_data in clim_path_list.items():
+        
+        # Load the cliamte data.
+        clim = pd.read_csv(sim_data)
+        
+        # Check final column to see whether it contains '-' or '/' (i.e. a date value):
+        if type(clim.iloc[0,-1]) == str:
+            clim.set_index(clim.columns[-1], inplace=True)
+        else:
+            if sim_start_date is None:
+                raise ValueError("No date column found in climate data and no simulation start date given. Suggest setting sim_start_date, e.g. '01/01/1980'.")
+            clim.index = pd.date_range(start=pd.to_datetime(sim_start_date, dayfirst=True), periods=len(clim), freq='D')
+
+        # Take mean across columns:
+        clim_mean = clim.mean(axis=1)
+        
+        # Build the plot.
+        fig.add_trace(go.Scatter(x=clim_mean.index, y=clim_mean, name=sim_name, opacity=0.8))
+
+    # Update layout properties:
+    fig.layout['xaxis'] = dict(title=dict(text='Date'))
+    fig.layout['yaxis'] = dict(title=dict(text=ylabel))
+    fig.update_layout(title_text="Meteorological Inputs")
+    
+    # Show the plot:
+    # fig.show()  # This has been changed as this does not work in Dash Apps, which need the plotly object, not just the shown figure. You will need to add '.show()' to code that is using the shown output not the updated plotly object. 
+    return fig
+
 # --- Load SHETRAN Regular Groundwater Level Output ----------
 def load_shetran_regular_groundater_level(level_path, st=None):
     """
@@ -504,31 +552,55 @@ def load_groundwater_level_files(level_path, st=None, datum_adjustment=0):
 
 
 # --- Plot Groundwater Level Data Interactively ----------------
-def plot_groundwater_level_datasets(level_path_list: dict, sim_start_date=None, datum_adjustment=0):
+def plot_groundwater_level_datasets(level_path_list: dict, sim_start_date=None, master_datum_adjustment=None):
     """
     :param level_path_list: Dictionary of labels and paths to SHETRAN output_watertable_element files
             and recorded level (depth) datasets.
     :param st: start date (dd/mm/yyyy) used for loading the SHETRAN regular level file, which does not have date.
-    :param datum_adjustment: a float or integer representing the groundwater of a borehole. Give this if the GW data is
-        given as a level above a datum instead of a depth. The GW data will be deducted from this value to convert
-        from level to depth. If data is already a depth below ground surface then leave or specify as 0. Units
-        should match the data source (meter, feet etc.)
-    :return:
+    :param datum_adjustment:    Give this if the GW data is given as a level above a datum instead of a depth. 
+                                The GW data will be deducted from this value to convert from level to depth. 
+                                If data is already a depth below ground surface then leave or specify as 0. 
+                                Units should match the data source (meter, feet etc.)
+                                This should be either a float/integer, a list of the same length as level_path_list 
+                                or a dictionary with the same length and names as in level_path_list.
+                                Adjustments are only made to non-SHETRAN datasets.
+    :return: Interactive line plot of flow data from different (correctly formatted) sources.
 
-    This will plot an interactive line plot of flow data from different (correctly formatted) sources.
     Example:
         paths = {
         'NRFA 69035': 'myfolder/Dean Farm 90191310 - GW Depth.csv',
         'SHETRAN 69035': 'myfolder/Optimisation_Outputs/output_43018_GWlevel_sim_regulartimestep_No10.txt
         }
-        plot_groundwater_level_datasets(level_path_list=paths)
+
+        plot_groundwater_level_datasets(level_path_list=paths, sim_start_date='01/01/1980', master_datum_adjustment=None)       # No datumn adjustment
+        plot_groundwater_level_datasets(level_path_list=paths, sim_start_date='01/01/1980', master_datum_adjustment=0)          # No datumn adjustment
+        plot_groundwater_level_datasets(level_path_list=paths, sim_start_date='01/01/1980', master_datum_adjustment=[20,0])     # Adjustment of 20m is given to NRFA data, which is recorded with a mean of 20m above sea level. 
+        plot_groundwater_level_datasets(level_path_list=paths, sim_start_date='01/01/1980', master_datum_adjustment=[20,60])    # Adjustment of 20m is given to NRFA data, the adjustment of 60m is not used as it is SHETRAN data.
+        plot_groundwater_level_datasets(level_path_list=paths, sim_start_date='01/01/1980', master_datum_adjustment={'NRFA 69035': 20, 'SHETRAN 69035': None}) 
+
     """
 
     # Set up figure:
     fig = go.Figure()
 
     # Run through each dictionary item.
+    counter = 0
     for sim_name, sim_data in level_path_list.items():
+
+        # Set the datum_adjustment either as a single value or one taken from a dictionary of values:
+        if master_datum_adjustment is None:
+            datum_adjustment = 0
+        elif type(master_datum_adjustment) in [int, float]:
+            datum_adjustment = master_datum_adjustment
+        elif type(master_datum_adjustment) == list:
+            datum_adjustment = master_datum_adjustment[counter]
+        elif type(master_datum_adjustment) == dict:
+            datum_adjustment = master_datum_adjustment[sim_name]
+        else:
+            print('Unsure of datum adjustments. Ensure master_datum_adjustment is a single value, list of values with the same length as the path dictionary, or a dictionary with the same names (and length) as the path dictionary. Datumn adjustments are not applied to the SHETRAN values, but 0 or None values should be provided for these.')
+        
+        counter += 1
+
         # Load the flow.
         level = load_groundwater_level_files(sim_data, st=sim_start_date, datum_adjustment=datum_adjustment)
 
@@ -543,5 +615,34 @@ def plot_groundwater_level_datasets(level_path_list: dict, sim_start_date=None, 
     # Flip the y-axis so that it looks like a depth and add a line at ground level:
     fig.update_yaxes(autorange="reversed")
     fig.add_hline(y=0)
+
+    return fig
+
+
+def plot_simulation_mass_balance(mb_path: str, cumulative=False, start_date="1980-01-01"):
+
+    # Load in the data and format:
+    mb = pd.read_csv(mb_path, skiprows=1, index_col=0)
+    mb.set_index(pd.date_range(start_date, periods=len(mb.index), freq="1D"), inplace=True)
+
+    # If you want the cumulative plot, only keep the cumulative columns:
+    mb_columns = mb.columns
+    if cumulative:
+        mb_columns = [col for col in mb_columns if 'cum' in col.lower()]
+
+    # Build the plot:
+    fig = go.Figure()
+    for col in mb_columns:
+        # If cumulative or the column is not cumulative then plot data as it is:
+        if cumulative or ('cum' not in col.lower()):
+            fig.add_trace(go.Scatter(x=mb.index, y=mb[col], name=col.replace('Cum ', 'Cum. ').strip()))
+        # Else plot the difference (i.e. daily values):
+        else:
+            fig.add_trace(go.Scatter(x=mb.index, y=mb[col].diff(), name=col.replace('Cum', '').replace('.', '').strip()))
+
+    # Update layout properties:
+    fig.layout['xaxis'] = dict(title=dict(text='Date'))
+    fig.layout['yaxis'] = dict(title=dict(text='mm'))
+    fig.update_layout(title_text="Mass Balance")
 
     return fig
