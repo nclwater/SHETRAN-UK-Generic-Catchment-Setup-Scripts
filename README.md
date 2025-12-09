@@ -6,7 +6,10 @@ Simulations can be set up from different gridded historical climate data (HadUK,
 Timeseries datasets are not included in this repository. Code is included on how to build the static datasets (rasters and lookup tables) as well as some suggested parameters, although these will most likely need calibrating for different catchments.
 
 ## Scripts
-- **01 - Build SHETRAN Input Datasets.ipynb:** This notebook can be used to generate the raster and lookup table datasets that are needed to setup the catchments. These can be made at a variety of resolutions. All input datasets are available online.
+- 
+- **01a - Build SHETRAN Subsurface Input Datasets.ipynb:** This set of notebooks can be used to generate the raster and lookup table datasets that are needed to setup the catchments. These can be made at a variety of resolutions. All input datasets are available online. This one does subsurface soil and geology datasets.
+- **01b - Build SHETRAN Elevation Input Datasets.ipynb:** As above, for elevation datasets.
+- **01c - Build SHETRAN Land Cover Input Datasets.ipynb:** As above, for land cover datasets.
 - **Functions_Model_Set_Up.py:** Functions for setting up SHETRAN catchment models. These sample input datasets, build library files, and lots of useful functions for manipulating SHETRAN input files. Function filenames have no spaces so that they can be imported into other scripts. 
 - **03 - SHETRAN UK Catchment Set Up Script.py:** This is the main script used for implementing the functions in the scripts above. This is setup for use on the Newcastle computing system, but should be transferable to other machines.
 - **Functions_Model_Visualisation.py:** Functions that focus on post-processing of SHETRAN results - typically plotting calculating performance.
